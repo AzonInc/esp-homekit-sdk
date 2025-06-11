@@ -28,6 +28,10 @@
 #include <freertos/queue.h>
 #include <esp_event.h>
 
+#if CONFIG_IDF_TARGET_ESP32
+#include "esp_heap_caps.h"
+#endif
+
 #include <esp_mfi_debug.h>
 #include <esp_hap_acc.h>
 #include <esp_hap_char.h>
@@ -203,8 +207,36 @@ int hap_loop_start()
 {
     if (!loop_started) {
         loop_started = true;
+#if CONFIG_IDF_TARGET_ESP32
+        // Try to allocate stack in PSRAM
+        StackType_t *stack = (StackType_t *)heap_caps_malloc(
+                                hap_priv.cfg.task_stack_size * sizeof(StackType_t),
+                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!stack) {
+            // Fallback to internal RAM
+            stack = (StackType_t *)heap_caps_malloc(
+                        hap_priv.cfg.task_stack_size * sizeof(StackType_t),
+                        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        }
+        if (!stack) {
+            // Allocation failed
+            return HAP_ERR_NO_MEM;
+        }
+        // Use static task API to supply our own stack
+        StaticTask_t *task_buf = (StaticTask_t *)heap_caps_malloc(
+                                    sizeof(StaticTask_t),
+                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!task_buf) {
+            free(stack);
+            return HAP_ERR_NO_MEM;
+        }
+        xTaskCreateStatic(hap_loop_task, "hap-loop", hap_priv.cfg.task_stack_size,
+                          NULL, hap_priv.cfg.task_priority, stack, task_buf);
+#else
+        // Classic dynamic allocation for non-ESP32 targets
         xTaskCreate(hap_loop_task, "hap-loop", hap_priv.cfg.task_stack_size, NULL,
-                        hap_priv.cfg.task_priority, NULL);
+                    hap_priv.cfg.task_priority, NULL);
+#endif
     }
     return HAP_SUCCESS;
 }
