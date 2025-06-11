@@ -1,36 +1,52 @@
-/*
- * ESPRESSIF MIT License
- *
- * Copyright (c) 2019 <ESPRESSIF SYSTEMS (SHANGHAI) PTE LTD>
- *
- * Permission is hereby granted for use on ESPRESSIF SYSTEMS products only, in which case,
- * it is free of charge, to any person obtaining a copy of this software and associated
- * documentation files (the "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the Software is furnished
- * to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all copies or
- * substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
- */
 #include <stdlib.h>
+#include <stdbool.h>
+#if CONFIG_IDF_TARGET_ESP32
+#include "esp_heap_caps.h"
+#include "esp_psram.h"
+#endif
+
+static bool psram_available(void) {
+#if CONFIG_IDF_TARGET_ESP32
+    return (esp_psram_is_initialized() && esp_psram_get_size() > 0);
+#else
+    return false;
+#endif
+}
 
 void * hap_platform_memory_malloc(size_t size)
 {
+#if CONFIG_IDF_TARGET_ESP32
+    if (psram_available()) {
+        void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (ptr) {
+            return ptr;
+        }
+        // Fallback to internal RAM if PSRAM allocation fails
+        return heap_caps_malloc(size, MALLOC_CAP_DEFAULT);
+    } else {
+        return heap_caps_malloc(size, MALLOC_CAP_DEFAULT);
+    }
+#else
     return malloc(size);
+#endif
 }
 
 void * hap_platform_memory_calloc(size_t count, size_t size)
 {
+#if CONFIG_IDF_TARGET_ESP32
+    if (psram_available()) {
+        void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (ptr) {
+            return ptr;
+        }
+        // Fallback to internal RAM if PSRAM allocation fails
+        return heap_caps_calloc(count, size, MALLOC_CAP_DEFAULT);
+    } else {
+        return heap_caps_calloc(count, size, MALLOC_CAP_DEFAULT);
+    }
+#else
     return calloc(count, size);
+#endif
 }
 
 void hap_platform_memory_free(void *ptr)
